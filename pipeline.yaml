@@ -1,0 +1,62 @@
+trigger:
+- main  # Replace with your branch name if different
+
+pool:
+  vmImage: 'ubuntu-latest'
+
+variables:
+  vm_user: 'username'
+  vm_host: 'hostname'
+  app_path: '/path/to/your/app'
+  private_key: '$(SSH_PRIVATE_KEY)'  # Ensure this is stored securely in pipeline secrets
+
+steps:
+
+# Install Node.js
+- task: UseNode@1
+  inputs:
+    versionSpec: '18.x'  # Specify the Node.js version
+  displayName: 'Install Node.js'
+
+# Install dependencies
+- script: |
+    npm install
+  displayName: 'Install dependencies'
+
+# Run tests
+- script: |
+    npm test
+  displayName: 'Run tests'
+
+# Build the application (if applicable)
+- script: |
+    npm run build
+  displayName: 'Build application'
+
+# Publish artifacts
+- task: CopyFiles@2
+  inputs:
+    contents: '**'
+    targetFolder: '$(Build.ArtifactStagingDirectory)'
+  displayName: 'Copy files to staging directory'
+
+- task: PublishPipelineArtifact@1
+  inputs:
+    targetPath: '$(Build.ArtifactStagingDirectory)'
+    artifactName: 'drop'
+  displayName: 'Publish artifact'
+
+# Deploy to Azure VM
+- task: DownloadPipelineArtifact@2
+  inputs:
+    artifactName: 'drop'
+    targetPath: '$(Build.SourcesDirectory)'
+  displayName: 'Download artifact'
+
+- script: |
+    ssh -o StrictHostKeyChecking=no -i $(SSH_PRIVATE_KEY) $(vm_user)@$(vm_host) "mkdir -p $(app_path)"
+    scp -o StrictHostKeyChecking=no -i $(SSH_PRIVATE_KEY) -r $(Build.SourcesDirectory)/* $(vm_user)@$(vm_host):$(app_path)
+    ssh -o StrictHostKeyChecking=no -i $(SSH_PRIVATE_KEY) $(vm_user)@$(vm_host) "cd $(app_path) && npm install && pm2 start app.js --name myapp"
+  displayName: 'Deploy to VM'
+  env:
+    SSH_PRIVATE_KEY: $(SSH_PRIVATE_KEY)
